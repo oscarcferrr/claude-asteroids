@@ -9,19 +9,20 @@ const H = 600;
 const keys = {};
 const justPressed = {};
 
-window.addEventListener('keydown', e => {
-  justPressed[e.code] = !keys[e.code];
-  keys[e.code] = true;
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code))
-    e.preventDefault();
-});
-window.addEventListener('keyup', e => { keys[e.code] = false; });
-
 function pressed(code) {
   const val = justPressed[code];
   justPressed[code] = false;
   return val;
 }
+
+window.addEventListener('keydown', (e) => {
+  if (!keys[e.code]) justPressed[e.code] = true;
+  keys[e.code] = true;
+});
+
+window.addEventListener('keyup', (e) => {
+  keys[e.code] = false;
+});
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 const wrap  = (v, max) => ((v % max) + max) % max;
@@ -62,6 +63,19 @@ const RADII  = [0, 16, 30, 50];   // por tamaño 1, 2, 3
 const SPEEDS = [0, 85, 55, 32];   // velocidad base por tamaño
 const POINTS = [0, 100, 50, 20];  // puntos por tamaño
 
+// Siluetas dibujadas a mano, normalizadas a radio 1 (vértice más lejano = 1.0).
+// Se usan como variación de los asteroides grandes junto a las formas aleatorias.
+const BIG_SHAPES = [
+  [
+    [-0.100, -0.936], [ 0.435, -0.789], [ 0.301, -0.227], [ 0.856, -0.067],
+    [ 0.682,  0.542], [ 0.234,  0.535], [ 0.013,  0.890], [-0.649,  0.575],
+    [-0.936,  0.020], [-0.836, -0.549],
+  ],
+];
+
+// Probabilidad de que un asteroide grande use una silueta del catálogo.
+const BIG_SHAPE_CHANCE = 1 / 3;
+
 class Asteroid {
   constructor(x, y, size = 3) {
     this.x    = x;
@@ -77,13 +91,18 @@ class Asteroid {
     this.rotSpeed = rand(-1.2, 1.2);
     this.rot = rand(0, Math.PI * 2);
 
-    // Polígono irregular
-    const n = randInt(8, 13);
-    this.verts = [];
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2;
-      const r = this.radius * rand(0.6, 1.0);
-      this.verts.push([Math.cos(a) * r, Math.sin(a) * r]);
+    // Polígono irregular: los grandes usan a veces una silueta del catálogo.
+    if (size === 3 && Math.random() < BIG_SHAPE_CHANCE) {
+      const shape = BIG_SHAPES[randInt(0, BIG_SHAPES.length - 1)];
+      this.verts = shape.map(([x, y]) => [x * this.radius, y * this.radius]);
+    } else {
+      const n = randInt(8, 13);
+      this.verts = [];
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const r = this.radius * rand(0.6, 1.0);
+        this.verts.push([Math.cos(a) * r, Math.sin(a) * r]);
+      }
     }
   }
 
