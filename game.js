@@ -224,6 +224,21 @@ class Ship {
     }
 
     ctx.restore();
+
+    // Escudo temporal activo: anillo de energía alrededor de la nave
+    if (shieldTimer > 0 && !(shieldTimer < 1.5 && Math.floor(shieldTimer * 8) % 2 === 0)) {
+      const shieldColor = PU_DEFS.shield.color;
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.strokeStyle = shieldColor;
+      ctx.lineWidth   = 2;
+      ctx.shadowColor = shieldColor;
+      ctx.shadowBlur  = 10;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius + 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 
@@ -259,15 +274,24 @@ class Particle {
   }
 }
 
-// ── Power-Up: Disparo Triple ──────────────────────────────────────────────────
-const PU_DROP_CHANCE  = 0.15;      // prob. por asteroide destruido
-const PU_TTL          = 12;        // segundos que el orbe permanece en pantalla
-const PU_COLOR        = '#2ee6d0'; // verde azulado
-const TRIPLE_DURATION = 10;        // segundos de disparo triple
-const TRIPLE_SPREAD   = 0.22;      // rad de separación entre balas del abanico
+// ── Power-Ups ─────────────────────────────────────────────────────────────────
+const PU_DROP_CHANCE  = 0.15;  // prob. por asteroide destruido (evaluada por cada tipo)
+const PU_TTL          = 12;    // segundos que un orbe permanece en pantalla sin recoger
+const TRIPLE_DURATION = 10;    // segundos de disparo triple
+const TRIPLE_SPREAD   = 0.22;  // rad de separación entre balas del abanico
+const SHIELD_DURATION = 5;     // segundos que dura el escudo temporal
+
+// Un tipo por clave: cada power-up tiene su propio color y figura geométrica
+// para distinguirse a simple vista. Al agregar uno nuevo, súmalo aquí con
+// colores/figura que no se repitan.
+const PU_DEFS = {
+  triple: { color: '#2ee6d0', sides: 3, label: '3x' }, // verde azulado, triángulo
+  shield: { color: '#b967ff', sides: 6, label: 'S'  }, // violeta, hexágono
+};
 
 class PowerUp {
-  constructor(x, y) {
+  constructor(x, y, type) {
+    this.type = type;
     this.x    = x;
     this.y    = y;
     this.radius   = 12;
@@ -294,19 +318,19 @@ class PowerUp {
     // Parpadea cuando está por expirar
     if (this.ttl < 3 && Math.floor(this.ttl * 6) % 2 === 0) return;
 
+    const def = PU_DEFS[this.type];
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.rot);
-    ctx.strokeStyle = PU_COLOR;
+    ctx.strokeStyle = def.color;
     ctx.lineWidth   = 2.5;
     ctx.lineJoin    = 'round';
-    ctx.shadowColor = PU_COLOR;
+    ctx.shadowColor = def.color;
     ctx.shadowBlur  = 8;
 
-    const sides = 3;
     ctx.beginPath();
-    for (let i = 0; i < sides; i++) {
-      const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
+    for (let i = 0; i < def.sides; i++) {
+      const a = (i / def.sides) * Math.PI * 2 - Math.PI / 2;
       const x = Math.cos(a) * this.radius;
       const y = Math.sin(a) * this.radius;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
@@ -315,11 +339,11 @@ class PowerUp {
     ctx.stroke();
 
     ctx.shadowBlur   = 0;
-    ctx.fillStyle    = PU_COLOR;
+    ctx.fillStyle    = def.color;
     ctx.font         = 'bold 8px monospace';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('3x', 0, 0);
+    ctx.fillText(def.label, 0, 0);
 
     ctx.restore();
   }
@@ -330,10 +354,11 @@ let ship, bullets, asteroids, particles;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
-let powerups;               // PowerUp[] — normalmente 0-1, pero puede haber más de uno
-                             // si queda alguno pendiente al cambiar de nivel
-let powerupSpawnedThisLevel; // ya salió (por azar o garantizado) uno en el nivel actual
-let tripleTimer;            // segundos restantes de disparo triple
+let powerups;          // PowerUp[] — normalmente 0-2, pero puede haber más si quedan
+                        // pendientes al cambiar de nivel
+let spawnedThisLevel;  // { triple: bool, shield: bool } — ya salió ese tipo en el nivel actual
+let tripleTimer;       // segundos restantes de disparo triple
+let shieldTimer;       // segundos restantes de escudo activo (0 = inactivo)
 
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
@@ -356,9 +381,10 @@ function initGame() {
   lives  = 3;
   level  = 1;
   state  = 'playing';
-  powerups              = [];
-  powerupSpawnedThisLevel = false;
-  tripleTimer             = 0;
+  powerups         = [];
+  spawnedThisLevel = { triple: false, shield: false };
+  tripleTimer      = 0;
+  shieldTimer      = 0;
   spawnAsteroids(4);
 }
 
@@ -369,7 +395,7 @@ function nextLevel() {
   ship.reset();
   // powerups NO se limpia: si el último asteroide del nivel anterior soltó uno
   // y no se recogió a tiempo, debe seguir siendo recogible en el nuevo nivel.
-  powerupSpawnedThisLevel = false;
+  spawnedThisLevel = { triple: false, shield: false };
   spawnAsteroids(3 + level);
 }
 
@@ -381,6 +407,7 @@ function killShip() {
   explode(ship.x, ship.y, 14);
   ship.dead = true;
   tripleTimer = 0;
+  shieldTimer = 0;
   lives--;
   if (lives <= 0) {
     state = 'gameover';
@@ -416,6 +443,7 @@ function update(dt) {
   }
 
   if (tripleTimer > 0) tripleTimer -= dt;
+  if (shieldTimer > 0) shieldTimer -= dt;
 
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
@@ -440,9 +468,11 @@ function update(dt) {
         newAsteroids.push(...a.split());
         lastKillX = a.x;
         lastKillY = a.y;
-        if (!powerupSpawnedThisLevel && Math.random() < PU_DROP_CHANCE) {
-          powerups.push(new PowerUp(a.x, a.y));
-          powerupSpawnedThisLevel = true;
+        for (const type of Object.keys(PU_DEFS)) {
+          if (!spawnedThisLevel[type] && Math.random() < PU_DROP_CHANCE) {
+            powerups.push(new PowerUp(a.x, a.y, type));
+            spawnedThisLevel[type] = true;
+          }
         }
       }
     }
@@ -450,20 +480,25 @@ function update(dt) {
   asteroids = asteroids.filter(a => !a.dead).concat(newAsteroids);
   bullets   = bullets.filter(b => !b.dead);
 
-  // Garantiza al menos un power-up por nivel: si el nivel se acaba de vaciar
-  // y todavía no salió ninguno por azar, se fuerza en la posición del último
-  // asteroide destruido.
-  if (!powerupSpawnedThisLevel && asteroids.length === 0 && lastKillX !== null) {
-    powerups.push(new PowerUp(lastKillX, lastKillY));
-    powerupSpawnedThisLevel = true;
+  // Garantiza al menos un power-up de cada tipo por nivel: si el nivel se
+  // acaba de vaciar y algún tipo todavía no salió por azar, se fuerza en la
+  // posición del último asteroide destruido.
+  if (asteroids.length === 0 && lastKillX !== null) {
+    for (const type of Object.keys(PU_DEFS)) {
+      if (!spawnedThisLevel[type]) {
+        powerups.push(new PowerUp(lastKillX, lastKillY, type));
+        spawnedThisLevel[type] = true;
+      }
+    }
   }
 
   // Nave vs power-up
   for (const p of powerups) {
     if (!p.dead && !ship.dead && dist(ship, p) < ship.radius + p.radius) {
-      tripleTimer = TRIPLE_DURATION;
       explode(p.x, p.y, 10);
       p.dead = true;
+      if (p.type === 'triple') tripleTimer = TRIPLE_DURATION;
+      if (p.type === 'shield') shieldTimer = SHIELD_DURATION;
     }
   }
   powerups = powerups.filter(p => !p.dead);
@@ -472,7 +507,15 @@ function update(dt) {
   if (ship.invincible <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
-        killShip();
+        if (shieldTimer > 0) {
+          // El escudo absorbe el impacto: se consume y da un respiro breve
+          // para no volver a chocar con el mismo asteroide en el acto.
+          shieldTimer = 0;
+          ship.invincible = 0.5;
+          explode(ship.x, ship.y, 10);
+        } else {
+          killShip();
+        }
         break;
       }
     }
@@ -516,8 +559,15 @@ function drawHUD() {
   if (tripleTimer > 0 && !(tripleTimer < 2 && Math.floor(tripleTimer * 6) % 2 === 0)) {
     ctx.textAlign = 'left';
     ctx.font      = '13px monospace';
-    ctx.fillStyle = PU_COLOR;
+    ctx.fillStyle = PU_DEFS.triple.color;
     ctx.fillText(`[3x] DISPARO TRIPLE ${Math.ceil(tripleTimer)}s`, 14, H - 14);
+  }
+
+  if (shieldTimer > 0 && !(shieldTimer < 1.5 && Math.floor(shieldTimer * 8) % 2 === 0)) {
+    ctx.textAlign = 'left';
+    ctx.font      = '13px monospace';
+    ctx.fillStyle = PU_DEFS.shield.color;
+    ctx.fillText(`[S] ESCUDO ${Math.ceil(shieldTimer)}s`, 14, H - 32);
   }
 }
 

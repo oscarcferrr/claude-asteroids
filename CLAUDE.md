@@ -29,3 +29,6 @@ Todo el estado y la lógica del juego están en `game.js` (archivo único, sin m
 - **Progresión de nivel**: al vaciarse `asteroids`, `nextLevel()` incrementa `level` y genera `3 + level` asteroides grandes nuevos.
 
 Al modificar el juego, mantén el patrón existente: una clase por tipo de entidad con `update`/`draw`, colisiones y transiciones de estado centralizadas en las funciones `update`/`initGame`/`nextLevel`/`killShip`, sin introducir módulos, bundler ni dependencias externas.
+
+**Consejo de diseño**
+ dado el estilo wireframe del juego, los power-ups podrían aparecer como figuras geométricas parpadeantes (un rombo, un hexágono, etc.) para mantener la estética retro sin romper la coherencia visual.
